@@ -1,5 +1,6 @@
 package ddapp_project.mytestwork;
 
+import java.io.File;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -9,6 +10,7 @@ import java.util.List;
 import android.app.ListActivity;
 import java.util.concurrent.TimeUnit;
 
+import android.content.Context;
 import android.database.Cursor;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -45,35 +47,26 @@ public class MainActivity extends ListActivity implements OnScrollListener {
     private float mGpa;
 
     private ApiEndpointInterface apiService;
-
+    List<String> forData;
     DB mDb;
     Cursor mCursor;
-
-    ArrayList<ArrayList<String>> forData = new ArrayList<ArrayList<String>>();
-    ArrayList<String> forDataElement;
     private ListView mList;
     private StringAdapter mAdapter;
     private View mFooter;
     private LoadMoreAsyncTask mLoadingTask = new LoadMoreAsyncTask();
+    private doRequest mDorequest = new doRequest();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        forDataElement = new ArrayList<String>();
         mDb = new DB(this);
         mDb.open();
         mCursor = mDb.getAllData();
         startManagingCursor(mCursor);
-        initRetrofit();
-        doRequest();
-        Thread thread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                generate();
-            }
-        });
-        thread.start();
+//        initRetrofit();
+        mDorequest.execute();
+
 
 
         mAdapter = new StringAdapter(this);
@@ -82,29 +75,25 @@ public class MainActivity extends ListActivity implements OnScrollListener {
         mList.addFooterView(mFooter); // it's important to call 'addFooter' before 'setAdapter'
         mList.setAdapter(mAdapter);
         mList.setOnScrollListener(this);
-        mLoadingTask.execute(0);
     }
 
-    /**
-     * Метод который генерит всю ету муть
-     */
     public void generate() {
-        forDataElement.clear();
+        forData = new ArrayList<String>();
         mCursor = mDb.getAllData();
         String firstName;
         String lastName;
         String birthday;
         if(mCursor!=null&&mCursor. moveToFirst()) {
             do {
-                firstName = mCursor.getString(mCursor.getColumnIndexOrThrow(DB.COLUMN_STUDENT_FIRST_NAME));
-                forDataElement.add(firstName);
-                lastName = mCursor.getString(mCursor.getColumnIndexOrThrow(DB.COLUMN_STUDENT_LAST_NAME));
-                forDataElement.add(lastName);
-                birthday = mCursor.getString(mCursor.getColumnIndexOrThrow(DB.COLUMN_BIRTHDAY));
-                forDataElement.add(birthday);
-                forData.add(forDataElement);
+                  firstName = mCursor.getString(mCursor.getColumnIndexOrThrow(DB.COLUMN_STUDENT_FIRST_NAME));
+                  lastName = mCursor.getString(mCursor.getColumnIndexOrThrow(DB.COLUMN_STUDENT_LAST_NAME));
+                  birthday = mCursor.getString(mCursor.getColumnIndexOrThrow(DB.COLUMN_BIRTHDAY));
+                  forData.add(firstName+" "+lastName+" "+birthday);
             }while(mCursor.moveToNext());
-
+        }
+        if(forData.size()==20){
+            mLoadingTask = new LoadMoreAsyncTask();
+            mLoadingTask.execute(0);
         }
     }
 
@@ -119,18 +108,16 @@ public class MainActivity extends ListActivity implements OnScrollListener {
         if (loadMore && mLoadingTask.getStatus() == AsyncTask.Status.FINISHED) {
             DB.limit+=20;
             generate();
-            mLoadingTask = new LoadMoreAsyncTask();
-            mLoadingTask.execute(totalCount);
         }
     }
 
-    private class LoadMoreAsyncTask extends AsyncTask<Integer, Void, Collection<ArrayList<String>>> {
+    private class LoadMoreAsyncTask extends AsyncTask<Integer, Void, Collection<String>> {
         @SuppressWarnings("unchecked")
         @Override
-        protected Collection<ArrayList<String>> doInBackground(Integer... params) {
+        protected Collection<String> doInBackground(Integer... params) {
             try {
-                Thread.sleep(1000);
-                Collection<ArrayList<String>> data = forData;
+                Thread.sleep(2000);
+                Collection<String> data = forData;
                 return data;
             } catch (Exception e) {
                 Log.e(TAG, "Loading data", e);
@@ -139,13 +126,12 @@ public class MainActivity extends ListActivity implements OnScrollListener {
         }
 
         @Override
-        protected void onPostExecute(Collection<ArrayList<String>> data) {
+        protected void onPostExecute(Collection<String> data) {
             if (data.isEmpty()) {
                 Toast.makeText(MainActivity.this, getString(R.string.error), Toast.LENGTH_SHORT).show();
                 return;
             }
-
-            mAdapter.add(forData);
+            mAdapter.add(data);
             mAdapter.notifyDataSetChanged();
             int index = mList.getFirstVisiblePosition();
             int top = (mList.getChildAt(0) == null) ? 0 : mList.getChildAt(0).getTop();
@@ -153,73 +139,82 @@ public class MainActivity extends ListActivity implements OnScrollListener {
         }
     }
 
-    private void doRequest() {
+    private class doRequest extends AsyncTask<Void,Void,Void> {
+        @Override
+        protected Void doInBackground(Void... voids) {
 
-        final Call<List<Student>> call = apiService.getStudents();
-        call.enqueue(new Callback<List<Student>>() {
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .writeTimeout(10, TimeUnit.SECONDS)
+                    .build();
+            Retrofit retrofit = new Retrofit.Builder()
+                    .baseUrl("https://ddapp-sfa-api-dev.azurewebsites.net/")
+                    .client(client)
+                    .addConverterFactory(GsonConverterFactory.create()).build();
+            apiService = retrofit.create(ApiEndpointInterface.class);
 
-            @Override
-            public void onResponse(Call<List<Student>> call, Response<List<Student>> response) {
-                /**
-                 * Вот твой список студентов :
-                 * response.body()
-                 * :)
-                 */
+            final Call<List<Student>> call = apiService.getStudents();
+            call.enqueue(new Callback<List<Student>>() {
 
-                for (int i = 0; i < response.body().size(); i++) {
+                @Override
+                public void onResponse(Call<List<Student>> call, Response<List<Student>> response) {
+                    /**
+                     * Вот твой список студентов :
+                     * response.body()
+                     * :)
+                     */
 
-                    mFirstName = response.body().get(i).getFirstName();
+                    for (int i = 0; i < response.body().size(); i++) {
 
-                    mLastName = response.body().get(i).getLastName();
+                        mFirstName = response.body().get(i).getFirstName();
 
-                    mBirthday = response.body().get(i).getBirthday();
+                        mLastName = response.body().get(i).getLastName();
 
-                    mId = response.body().get(i).getId();
-                    Courses[] curs = response.body().get(i).getCourses();
-                    for (int j = 0; j < curs.length; j++) {
-                        if (j == 0) {
-                            mCourse_0 = Float.parseFloat(curs[j].getMark());
-                        } else if (j == 1) {
-                            mCourse_1 = Float.parseFloat(curs[j].getMark());
-                        } else if (j == 2) {
-                            mCourse_2 = Float.parseFloat(curs[j].getMark());
-                        } else if (j == 3) {
-                            mCourse_3 = Float.parseFloat(curs[j].getMark());
-                            mGpa = (mCourse_0 + mCourse_1 + mCourse_2 + mCourse_3) / 4;
+                        mBirthday = response.body().get(i).getBirthday();
+
+                        mId = response.body().get(i).getId();
+                        Courses[] curs = response.body().get(i).getCourses();
+                        for (int j = 0; j < curs.length; j++) {
+                            if (j == 0) {
+                                mCourse_0 = Float.parseFloat(curs[j].getMark());
+                            } else if (j == 1) {
+                                mCourse_1 = Float.parseFloat(curs[j].getMark());
+                            } else if (j == 2) {
+                                mCourse_2 = Float.parseFloat(curs[j].getMark());
+                            } else if (j == 3) {
+                                mCourse_3 = Float.parseFloat(curs[j].getMark());
+                                mGpa = (mCourse_0 + mCourse_1 + mCourse_2 + mCourse_3) / 4;
+                            }
                         }
-                    }
 
-                    mCursor = mDb.addRec(mFirstName, mLastName, mId, mBirthday, (int) mCourse_0, (int) mCourse_1, (int) mCourse_2, (int) mCourse_3, mGpa);
-                    Log.d(TAG, "onResponse: response.isSuccessful() " + response.isSuccessful());
-                    Log.d(TAG, "onResponse: response.size() = " + response.body().size());
-                    Log.d(TAG, "onResponse: getFirstName " + response.body().get(i).getFirstName());
-                    Log.d(TAG, "onResponse: getLastName " + response.body().get(i).getLastName());
-                    Log.d(TAG, "onResponse: getBirthday " + response.body().get(i).getBirthday());
-                    Log.d(TAG, "onResponse: getID " + response.body().get(i).getId());
+                        mCursor = mDb.addRec(mFirstName, mLastName, mId, mBirthday, (int) mCourse_0, (int) mCourse_1, (int) mCourse_2, (int) mCourse_3, mGpa);
+                    }
+                    generate();
                 }
 
-            }
-
-            @Override
-            public void onFailure(Call<List<Student>> call, Throwable t) {
-                Log.d(TAG, "onFailure: " + t.getMessage());
-            }
-        });
+                @Override
+                public void onFailure(Call<List<Student>> call, Throwable t) {
+                    Log.d(TAG, "onFailure: " + t.getMessage());
+                }
+            });
+            return null;
+        }
     }
 
 
-    private void initRetrofit() {
-        OkHttpClient client = new OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(10, TimeUnit.SECONDS)
-                .writeTimeout(10, TimeUnit.SECONDS)
-                .build();
-        Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl("https://ddapp-sfa-api-dev.azurewebsites.net/")
-                .client(client)
-                .addConverterFactory(GsonConverterFactory.create()).build();
-        apiService = retrofit.create(ApiEndpointInterface.class);
-    }
+//    private void initRetrofit() {
+//        OkHttpClient client = new OkHttpClient.Builder()
+//                .connectTimeout(10, TimeUnit.SECONDS)
+//                .readTimeout(10, TimeUnit.SECONDS)
+//                .writeTimeout(10, TimeUnit.SECONDS)
+//                .build();
+//        Retrofit retrofit = new Retrofit.Builder()
+//                .baseUrl("https://ddapp-sfa-api-dev.azurewebsites.net/")
+//                .client(client)
+//                .addConverterFactory(GsonConverterFactory.create()).build();
+//        apiService = retrofit.create(ApiEndpointInterface.class);
+//    }
 
     public void onDestroy(){
         super.onDestroy();
